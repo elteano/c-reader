@@ -1,0 +1,11 @@
+Mocking up what the user interface ought to be.
+
+
+
+
+Feeds      | Articles
+-----------+------------+-------------------
+>Name....< | Latest     | Article Title
+Name....   | Then       | Description...
+Name....   | Finally    | Load?
+
