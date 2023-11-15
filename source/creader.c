@@ -122,7 +122,7 @@ void writelog(char * data, ...)
 {
   va_list args;
   va_start(args, data);
-  writelog_l(data, LOGLEVEL_INFO);
+  writelog_l(data, LOGLEVEL_INFO, args);
 }
 #else
 void openlog() {}
