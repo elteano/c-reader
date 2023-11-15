@@ -31,7 +31,7 @@
 
 #define ERR_NO_MEM  5
 
-#define DEBUG
+//#define DEBUG
 
 // Feed:
 // - Articles
@@ -200,6 +200,20 @@ int geturl(char* url, FILE * dest)
           result = -4;
         }
       }
+      else if (result == CURLE_URL_MALFORMAT)
+      {
+        char * sa = malloc(sizeof(char) * 1024);
+        snprintf(sa, 1024, "Curl bad url: %s\n", url);
+        fputs(sa, dest);
+        free(sa);
+      }
+      else
+      {
+        char * sa = malloc(sizeof(char) * 1024);
+        snprintf(sa, 1024, "Curl error received: %d\n", result);
+        fputs(sa, dest);
+        free(sa);
+      }
 
       curl_easy_cleanup(curl);
 
@@ -220,36 +234,10 @@ int geturl(char* url, FILE * dest)
 channelInfo * parseFromUrl(char * url)
 {
   int memfd = memfd_create("xml", 0);
-  //FILE * fptr = fdopen(memfd, "r+");
-  FILE * fptr = fopen("bwargh.xml", "w+");
+  FILE * fptr = fdopen(memfd, "r+");
   channelInfo * channel = NULL;
   if (geturl(url, fptr))
   {
-#ifdef DEBUG
-    rewind(fptr);
-    lseek(memfd, 0, SEEK_SET);
-    FILE *fout = fopen("test.xml", "w");
-    if (feof(fptr))
-    {
-      fputs("EOF already.", fout);
-    }
-    else if (ferror(fptr))
-    {
-      fputs("Error.\n", fout);
-    }
-    else
-    {
-      char * rbuf = malloc(BUFSIZ);
-      while (fgets(rbuf, BUFSIZ, fptr))
-      {
-        fputs(rbuf, fout);
-      }
-      free(rbuf);
-      rbuf = NULL;
-    }
-    fflush(fout);
-    fclose(fout);
-#endif
     rewind(fptr);
     lseek(memfd, 0, SEEK_SET);
     channel = channelParseFd(memfd);
@@ -362,15 +350,21 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
             --cInd;
           }
         }
-        if (dest && cInd < len)
-        {
-          dest[cInd] = val.utf8[0];
-          ncplane_putchar(popup_plane, dest[cInd]);
-          ++cInd;
-        }
         else
         {
-          cont = 0;
+          if (dest && cInd < len)
+          {
+            if (val.utf8[0] >= ' ' && val.utf8[0] < 127)
+            {
+              dest[cInd] = val.utf8[0];
+              ncplane_putchar(popup_plane, dest[cInd]);
+              ++cInd;
+            }
+          }
+          else
+          {
+            cont = 0;
+          }
         }
       }
     }
@@ -461,22 +455,21 @@ int main(int argc, char** argv)
         notcurses_get_blocking(nc_handle, &val);
         if (val.evtype == NCTYPE_PRESS && val.id == 'a')
         {
-          if (getinfo)
+          getInput(nc_handle, getinfo, 1024);
+          ncplane_putstr_yx(viewpane->feedplane, 30, 1, getinfo);
+          notcurses_render(nc_handle);
+          channelInfo * newChannel = parseFromUrl(getinfo);
+          if(newChannel)
           {
-            getInput(nc_handle, getinfo, 1024);
-            channelInfo * newChannel = parseFromUrl(getinfo);
-            if(newChannel)
-            {
-              snprintf(stuff, 1024, "Channel title: %s", newChannel->title);
-              ncplane_putstr_yx(viewpane->feedplane, 10, 10, stuff);
-              channelFreeInfo(newChannel);
-            }
-            else
-            {
-              ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
-            }
-            notcurses_render(nc_handle);
+            snprintf(stuff, 1024, "Channel title: %s", newChannel->title);
+            ncplane_putstr_yx(viewpane->feedplane, 10, 10, stuff);
+            channelFreeInfo(newChannel);
           }
+          else
+          {
+            ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
+          }
+          notcurses_render(nc_handle);
         }
       }
       while (val.id != 'q');
