@@ -2,6 +2,7 @@
 
 #define _GNU_SOURCE
 
+#include<stdarg.h>
 #include<errno.h>
 #include<locale.h>
 #include<pthread.h>
@@ -70,11 +71,36 @@ void openlog()
   free(filename);
 }
 
-void writelog(char * data)
+void writelog_l(char * data, int loglevel, ...)
 {
+  va_list args;
+  va_start(args, loglevel);
   time_t curtime = 0;
   struct tm tminfo;
   memset(&tminfo, 0, sizeof(struct tm));
+  char * llevel;
+  switch(loglevel)
+  {
+    case LOGLEVEL_DEBUG:
+      llevel = "DEBUG";
+      break;
+    case LOGLEVEL_TRACE:
+      llevel = "TRACE";
+      break;
+    case LOGLEVEL_INFO:
+      llevel = "INFO";
+      break;
+    case LOGLEVEL_WARN:
+      llevel = "WARN";
+      break;
+    case LOGLEVEL_ERROR:
+      llevel = "ERROR";
+      break;
+    default:
+      llevel = alloca(12);
+      snprintf(llevel, 12, "%d", loglevel);
+      break;
+  }
 
   time(&curtime);
   localtime_r(&curtime, &tminfo);
@@ -83,13 +109,20 @@ void writelog(char * data)
   strftime(timebuf, 1024, "%F %T%z", &tminfo);
 
   char * logbuf = malloc(LOGBUFSIZE);
-  snprintf(logbuf, LOGBUFSIZE, "%s - %s\n", timebuf, data);
-  fputs(logbuf, logfile);
+  vsnprintf(logbuf, LOGBUFSIZE, data, args);
+  fprintf(logfile, "%s - %s - %s\n", timebuf, llevel, logbuf);
 
   fflush(logfile);
 
   free(timebuf);
   free(logbuf);
+}
+
+void writelog(char * data, ...)
+{
+  va_list args;
+  va_start(args, data);
+  writelog_l(data, LOGLEVEL_INFO);
 }
 #else
 void openlog() {}
@@ -97,6 +130,8 @@ void writelog(char * data)
 {
   // do nothing
 }
+void writelog_l(char*, int)
+{}
 #endif
 
 // Feed:
@@ -517,6 +552,15 @@ int main(int argc, char** argv)
     opts->cols = width/3;
     viewpane->feedplane = ncplane_create(std_plane, opts);
 
+    if (viewpane->feedplane)
+    {
+      writelog_l("feedplane created with %d rows and %d cols", LOGLEVEL_INFO, opts->rows, opts->cols);
+    }
+    else
+    {
+      writelog_l("feedplane not created", LOGLEVEL_ERROR);
+    }
+
     opts->y = 0;
     opts->x = width/3;
     opts->name = "Article Plane";
@@ -574,7 +618,7 @@ int main(int argc, char** argv)
           else
           {
             ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
-            writelog("Channel not created.");
+            writelog_l("Channel not created.", LOGLEVEL_ERROR);
           }
           notcurses_render(nc_handle);
         }
