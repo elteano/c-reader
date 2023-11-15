@@ -23,6 +23,7 @@
 #include<sys/mman.h>
 
 #include "parse.h"
+#include "logging.h"
 
 #define TOP_BORDER  "\u2501"
 #define SIDE_BORDER "\u2503"
@@ -34,105 +35,6 @@
 #define ERR_NO_MEM  5
 
 #define DEBUG
-
-#define LOGGING
-
-#ifdef LOGGING
-
-#define LOGLEVEL_DEBUG  90
-#define LOGLEVEL_TRACE  80
-#define LOGLEVEL_INFO   70
-#define LOGLEVEL_WARN   60
-#define LOGLEVEL_ERROR  50
-
-#define LOGBUFSIZE 1024*10
-FILE * logfile;
-void openlog()
-{
-  time_t curtime = 0;
-  struct tm tminfo;
-  char * timebuf;
-  char * filename;
-
-  memset(&tminfo, 0, sizeof(struct tm));
-
-  time(&curtime);
-  localtime_r(&curtime, &tminfo);
-
-  timebuf = malloc(120);
-  strftime(timebuf, 120, "%F", &tminfo);
-
-  filename = malloc(128);
-  snprintf(filename, 128, "%s.log", timebuf);
-
-  logfile = fopen(filename, "w");
-
-  free(timebuf);
-  free(filename);
-}
-
-void writelog_l(char * data, int loglevel, ...)
-{
-  va_list args;
-  va_start(args, loglevel);
-  time_t curtime = 0;
-  struct tm tminfo;
-  memset(&tminfo, 0, sizeof(struct tm));
-  char * llevel;
-  switch(loglevel)
-  {
-    case LOGLEVEL_DEBUG:
-      llevel = "DEBUG";
-      break;
-    case LOGLEVEL_TRACE:
-      llevel = "TRACE";
-      break;
-    case LOGLEVEL_INFO:
-      llevel = "INFO";
-      break;
-    case LOGLEVEL_WARN:
-      llevel = "WARN";
-      break;
-    case LOGLEVEL_ERROR:
-      llevel = "ERROR";
-      break;
-    default:
-      llevel = alloca(12);
-      snprintf(llevel, 12, "%d", loglevel);
-      break;
-  }
-
-  time(&curtime);
-  localtime_r(&curtime, &tminfo);
-
-  char * timebuf = malloc(1024);
-  strftime(timebuf, 1024, "%F %T%z", &tminfo);
-
-  char * logbuf = malloc(LOGBUFSIZE);
-  vsnprintf(logbuf, LOGBUFSIZE, data, args);
-  fprintf(logfile, "%s - %s - %s\n", timebuf, llevel, logbuf);
-
-  fflush(logfile);
-
-  free(timebuf);
-  free(logbuf);
-}
-
-void writelog(char * data, ...)
-{
-  va_list args;
-  va_start(args, data);
-  writelog_l(data, LOGLEVEL_INFO, args);
-}
-#else
-void openlog() {}
-void writelog(char * data)
-{
-  // do nothing
-}
-void writelog_l(char*, int)
-{}
-#endif
 
 // Feed:
 // - Articles
@@ -151,7 +53,8 @@ void writelog_l(char*, int)
 #ifdef DEBUG
 void fcpy(FILE * dest, FILE *src)
 {
-  char * buf = malloc (sizeof(char) * BUFSIZ);
+  char * buf = malloc(BUFSIZ);
+  writelog_l("performing fcpy with bufsiz %d", LOGLEVEL_DEBUG, BUFSIZ);
 
   while (fgets(buf, BUFSIZ, src))
   {
@@ -250,49 +153,6 @@ struct viewpane
   struct ncplane * infoplane;
 };
 
-int getFeed(char * feedurl)
-{
-  if (!feedurl)
-  {
-    return 1;
-  }
-
-  CURL * curl = curl_easy_init();
-  if(curl)
-  {
-    CURLcode result;
-
-    FILE * tmp = tmpfile();
-    curl_easy_setopt(curl, CURLOPT_URL, feedurl);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, tmp);
-    result = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-
-    if(!result)
-    {
-      rewind(tmp);
-
-      // Using xmllib2 for parsing
-      xmlTextReaderPtr reader;
-      // TODO parse XML
-      // Seems that reader wants to be initialized with a filename
-
-      // temporary file is deleted automatically with close
-      fclose(tmp);
-    }
-    else
-    {
-      fclose(tmp);
-      return 1;
-    }
-  }
-  else
-  {
-    return 1;
-  }
-  return 0;
-}
-
 int geturl(char* url, FILE * dest)
 {
   if (url && dest)
@@ -314,40 +174,37 @@ int geturl(char* url, FILE * dest)
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
         if (response_code >= 400)
         {
+          writelog_l("curl bad response code: %ld", LOGLEVEL_ERROR, response_code);
           result = -4;
+        }
+        else
+        {
+          writelog_l("curl response code: %ld", LOGLEVEL_INFO, response_code);
         }
       }
       else if (result == CURLE_URL_MALFORMAT)
       {
-        char * sa = malloc(sizeof(char) * 1024);
-        snprintf(sa, 1024, "Curl bad url: %s\n", url);
-        writelog(sa);
-        fputs(sa, dest);
-        free(sa);
+        writelog_l("curl bad url: %s", LOGLEVEL_ERROR, url);
       }
       else
       {
-        char * sa = malloc(sizeof(char) * 1024);
-        snprintf(sa, 1024, "Curl error received: %d\n", result);
-        writelog(sa);
-        fputs(sa, dest);
-        free(sa);
+        writelog_l("curl error received: %d", LOGLEVEL_ERROR, result);
       }
 
       curl_easy_cleanup(curl);
 
       rewind(dest);
-      return result;
+      return 0;
     }
     else
     {
-      writelog("geturl: curl not initialized.");
+      writelog_l("geturl: curl not initialized.", LOGLEVEL_ERROR);
       return -2;
     }
   }
   else
   {
-    writelog("geturl: Null input received.");
+    writelog_l("geturl: Null input received.", LOGLEVEL_WARN);
     return -1;
   }
 }
@@ -357,11 +214,11 @@ channelInfo * parseFromUrl(char * url)
   int memfd = memfd_create("xml", 0);
   FILE * fptr = fdopen(memfd, "r+");
   channelInfo * channel = NULL;
-  if (geturl(url, fptr))
+  if (!geturl(url, fptr))
   {
 #ifdef DEBUG
     rewind(fptr);
-    FILE * tmpf = fopen("text.xml", "w");
+    FILE * tmpf = fopen("debug-file.xml", "w");
     fcpy(tmpf, fptr);
     fclose(tmpf);
     tmpf = NULL;
@@ -372,11 +229,7 @@ channelInfo * parseFromUrl(char * url)
   }
   else
   {
-#ifdef DEBUG
-    FILE *errf = fopen("err.out", "w");
-    fputs("Error: no geturl issue\n", errf);
-    fclose(errf);
-#endif
+    writelog_l("parse error: geturl bad result", LOGLEVEL_ERROR);
   }
   close(memfd);
   return channel;
@@ -512,15 +365,14 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
 
   notcurses_get_blocking(nc_handle, &val);
   ncplane_destroy(popup_plane);
+  notcurses_render(nc_handle);
 
   return 0;
 }
 
 int main(int argc, char** argv)
 {
-#ifdef LOGGING
   openlog();
-#endif
   int error = 0;
   channelInfo ** channels = malloc(sizeof(channelInfo*) * 1024);
   int num_channels = 0;
@@ -605,20 +457,16 @@ int main(int argc, char** argv)
         if (val.evtype == NCTYPE_PRESS && val.id == 'a')
         {
           getInput(nc_handle, getinfo, 1024);
-          ncplane_putstr_yx(viewpane->feedplane, 30, 1, getinfo);
-          notcurses_render(nc_handle);
+          writelog_l("fetching url %s", LOGLEVEL_INFO, getinfo);
           channelInfo * newChannel = parseFromUrl(getinfo);
           if(newChannel)
           {
-            snprintf(stuff, 1024, "Channel title: %s", newChannel->title);
-            writelog(stuff);
-            ncplane_putstr_yx(viewpane->feedplane, 10, 10, stuff);
+            writelog_l("found channel with title %s", LOGLEVEL_INFO, newChannel->title);
             channelFreeInfo(newChannel);
           }
           else
           {
-            ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
-            writelog_l("Channel not created.", LOGLEVEL_ERROR);
+            writelog_l("unable to create channel for url %s", LOGLEVEL_ERROR, getinfo);
           }
           notcurses_render(nc_handle);
         }
@@ -632,6 +480,7 @@ int main(int argc, char** argv)
     else
     {
       error = ERR_NO_MEM;
+      writelog("Ran out of memory.");
     }
 
     // Close NotCurses
@@ -650,11 +499,9 @@ int main(int argc, char** argv)
   }
   else
   {
-    writelog("Error initializing notcurses.");
+    writelog_l("Error initializing notcurses.", LOGLEVEL_ERROR);
     fprintf(stderr, "%s\n", "Error initializing notcurses.");
   }
   free(channels);
-#ifdef LOGGING
-  fclose(logfile);
-#endif
+  closelog();
 }
