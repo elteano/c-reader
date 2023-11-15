@@ -41,10 +41,10 @@ void closelog()
   logfile = NULL;
 }
 
-void writelog_l(char * data, int loglevel, ...)
+void _writelog_l(int loglevel, char * data, char * fname, int lineno, ...)
 {
   va_list args;
-  va_start(args, loglevel);
+  va_start(args, lineno);
   time_t curtime = 0;
   struct tm tminfo;
   memset(&tminfo, 0, sizeof(struct tm));
@@ -75,22 +75,14 @@ void writelog_l(char * data, int loglevel, ...)
   time(&curtime);
   localtime_r(&curtime, &tminfo);
 
-  char * timebuf = malloc(1024);
-  strftime(timebuf, 1024, "%F %T%z", &tminfo);
+  char timebuf[30];
+  strftime(timebuf, 30, "%F %T%z", &tminfo);
 
   char * logbuf = malloc(LOGBUFSIZE);
   vsnprintf(logbuf, LOGBUFSIZE, data, args);
-  fprintf(logfile, "%s - %5s - %s\n", timebuf, llevel, logbuf);
+  fprintf(logfile, "%s - %s:%d - %s - %s\n", timebuf, fname, lineno, llevel, logbuf);
 
   fflush(logfile);
 
-  free(timebuf);
   free(logbuf);
-}
-
-void writelog(char * data, ...)
-{
-  va_list args;
-  va_start(args, data);
-  writelog_l(data, LOGLEVEL_INFO, args);
 }

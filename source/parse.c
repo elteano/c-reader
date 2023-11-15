@@ -108,17 +108,17 @@ void parseChannelSubElement(xmlTextReader * reader, channelInfo * mod)
   {
     //printf("title namespace is %s\n", ns);
     parseTextContainer(reader, &mod->title);
-    writelog_l("found channel title %s", LOGLEVEL_DEBUG, mod->title);
+    writelog_l(LOGLEVEL_DEBUG, "found channel title %s", mod->title);
   }
   else if (strcmp(name, "link") == 0)
   {
     parseTextContainer(reader, &mod->link);
-    writelog_l("found channel link %s", LOGLEVEL_DEBUG, mod->link);
+    writelog_l(LOGLEVEL_DEBUG, "found channel link %s", mod->link);
   }
   else if (strcmp(name, "description") == 0)
   {
     parseTextContainer(reader, &mod->description);
-    writelog_l("found channel description %.10s", LOGLEVEL_DEBUG, mod->description);
+    writelog_l(LOGLEVEL_DEBUG, "found channel description %.10s", mod->description);
   }
   free(ns);
   free(name);
@@ -195,6 +195,7 @@ int parseItemSubElement(xmlTextReader * reader, channelInfo * mod)
 
 int consumeElement(xmlTextReader * reader)
 {
+  return 0;
   // We do not support this element currently, so move the reader past it
 }
 
@@ -208,7 +209,6 @@ channelInfo * parseWithReader(xmlTextReader * reader)
   {
     skipNext = false;
     xmlChar * name;
-    xmlChar * content;
     xmlChar * ns;
     switch (xmlTextReaderNodeType(reader))
     {
@@ -242,7 +242,7 @@ channelInfo * parseWithReader(xmlTextReader * reader)
 
 channelInfo * channelParseFd(int fd)
 {
-  writelog_l("parsing channel from fd %d", LOGLEVEL_DEBUG, fd);
+  writelog_l(LOGLEVEL_DEBUG, "parsing channel from fd %d", fd);
   xmlTextReader* reader = xmlReaderForFd(fd, NULL, NULL, 0);
   channelInfo * ret = parseWithReader(reader);
   xmlFreeTextReader(reader);
@@ -251,7 +251,7 @@ channelInfo * channelParseFd(int fd)
 
 channelInfo * channelParseFname(char * fname)
 {
-  writelog_l("parsing channel from file %s", LOGLEVEL_DEBUG, fname);
+  writelog_l(LOGLEVEL_DEBUG, "parsing channel from file %s", fname);
   xmlTextReader * reader = xmlReaderForFile(fname, NULL, 0);
   channelInfo * ret = parseWithReader(reader);
   xmlFreeTextReader(reader);

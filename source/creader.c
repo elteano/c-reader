@@ -21,6 +21,7 @@
 #include<libxml/tree.h>
 
 #include<sys/mman.h>
+#include<sys/param.h>
 
 #include "parse.h"
 #include "logging.h"
@@ -31,6 +32,8 @@
 #define TR_CORNER   "\u2513"
 #define BL_CORNER   "\u2517"
 #define BR_CORNER   "\u251b"
+
+#define ARROW_CHAR "\u29b6"
 
 #define ERR_NO_MEM  5
 
@@ -54,7 +57,7 @@
 void fcpy(FILE * dest, FILE *src)
 {
   char * buf = malloc(BUFSIZ);
-  writelog_l("performing fcpy with bufsiz %d", LOGLEVEL_DEBUG, BUFSIZ);
+  writelog_l(LOGLEVEL_DEBUG, "performing fcpy with bufsiz %d", BUFSIZ);
 
   while (fgets(buf, BUFSIZ, src))
   {
@@ -174,37 +177,37 @@ int geturl(char* url, FILE * dest)
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
         if (response_code >= 400)
         {
-          writelog_l("curl bad response code: %ld", LOGLEVEL_ERROR, response_code);
+          writelog_l(LOGLEVEL_ERROR, "curl bad response code: %ld", response_code);
           result = -4;
         }
         else
         {
-          writelog_l("curl response code: %ld", LOGLEVEL_INFO, response_code);
+          writelog_l(LOGLEVEL_INFO, "curl response code: %ld", response_code);
         }
       }
       else if (result == CURLE_URL_MALFORMAT)
       {
-        writelog_l("curl bad url: %s", LOGLEVEL_ERROR, url);
+        writelog_l(LOGLEVEL_ERROR, "curl bad url: %s", url);
       }
       else
       {
-        writelog_l("curl error received: %d", LOGLEVEL_ERROR, result);
+        writelog_l(LOGLEVEL_ERROR, "curl error received: %d", result);
       }
 
       curl_easy_cleanup(curl);
 
       rewind(dest);
-      return 0;
+      return !(result == CURLE_OK);
     }
     else
     {
-      writelog_l("geturl: curl not initialized.", LOGLEVEL_ERROR);
+      writelog_l(LOGLEVEL_ERROR, "geturl: curl not initialized.");
       return -2;
     }
   }
   else
   {
-    writelog_l("geturl: Null input received.", LOGLEVEL_WARN);
+    writelog_l(LOGLEVEL_WARN, "geturl: Null input received.");
     return -1;
   }
 }
@@ -229,7 +232,7 @@ channelInfo * parseFromUrl(char * url)
   }
   else
   {
-    writelog_l("parse error: geturl bad result", LOGLEVEL_ERROR);
+    writelog_l(LOGLEVEL_ERROR, "parse error: geturl bad result");
   }
   close(memfd);
   return channel;
@@ -262,16 +265,11 @@ void * print_inputs(void * arg)
 void create_title(struct ncplane * plane, char * title)
 {
   int width, height;
-  char * flip;
-  flip = malloc(1024);
   ncplane_dim_yx(plane, &height, &width);
-  sprintf(flip, "Height: %4d ; Width: %4d", height, width);
-  ncplane_putstr_yx(plane, 2, 0, flip);
-  free(flip);
   ncplane_putstr_yx(plane, 0, 0, title);
   for (int i = 0; i < width; ++i)
   {
-    ncplane_putstr_yx(plane, 1, i, "\u2501");
+    ncplane_putstr_yx(plane, 1, i, TOP_BORDER);
   }
 }
 
@@ -314,7 +312,6 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
   ncplane_cursor_move_yx(popup_plane, 2, 2);
   ncplane_putchar(popup_plane, '>');
   notcurses_render(nc_handle);
-  char * statusStr = malloc(sizeof(char) * 1024);
 
   int cInd = 0;
 
@@ -322,8 +319,6 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
   do
   {
     notcurses_get_blocking(nc_handle, &val);
-    snprintf(statusStr, 1024, "Status code: %d, %d", val.evtype, cInd);
-    ncplane_putstr_yx(std_plane, 3, 3, statusStr);
     if (val.evtype == NCTYPE_PRESS)
     {
       if (val.id == NCKEY_ENTER)
@@ -341,7 +336,7 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
         }
         else
         {
-          if (dest && cInd < len)
+          if (dest && cInd < len - 1)
           {
             if (val.utf8[0] >= ' ' && val.utf8[0] < 127)
             {
@@ -360,14 +355,65 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
     notcurses_render(nc_handle);
   }
   while (cont);
-
-  free(statusStr);
+  dest[cInd] = 0;
 
   notcurses_get_blocking(nc_handle, &val);
   ncplane_destroy(popup_plane);
   notcurses_render(nc_handle);
 
   return 0;
+}
+
+int printTitles(struct ncplane * plane, channelInfo ** channels, int numChannels)
+{
+  if (channels)
+  {
+    if (plane)
+    {
+      writelog_l(LOGLEVEL_TRACE, "printing %d channels to plane", numChannels);
+      for (int i = 0; i < numChannels; ++i)
+      {
+        writelog_l(LOGLEVEL_DEBUG, "printing channel title %s", channels[i]->title);
+        ncplane_putstr_yx(plane, i+2, 2, channels[i]->title);
+      }
+    }
+    else
+    {
+      writelog_l(LOGLEVEL_WARN, "Tried printing, but plane was null.");
+    }
+  }
+  else
+  {
+    writelog_l(LOGLEVEL_WARN, "Tried printing, but channels was null.");
+  }
+}
+
+int printArticles(struct ncplane * plane, channelInfo * channel)
+{
+  writelog_l(LOGLEVEL_TRACE, "printing %d articles to plane", channel->itemCount);
+  unsigned rows;
+  unsigned cols;
+  char * buf;
+
+  ncplane_dim_yx(plane, &rows, &cols);
+  buf = malloc(cols);
+
+  writelog_l(LOGLEVEL_TRACE, "writing items from channel %s", channel->title);
+  int avail_rows = MIN(rows, channel->itemCount);
+  for (int i = 0; i < avail_rows; ++i)
+  {
+    if (strlen(channel->items[i]->title) > cols-3)
+    {
+      memcpy(buf, channel->items[i]->title, cols-6);
+      strcpy(&buf[cols-6], "...");
+    }
+    else
+    {
+      strcpy(buf, channel->items[i]->title);
+    }
+    ncplane_putstr_yx(plane, i+2, 2, buf);
+  }
+  free(buf);
 }
 
 int main(int argc, char** argv)
@@ -379,6 +425,8 @@ int main(int argc, char** argv)
   struct notcurses * nc_handle;
   struct ncplane * std_plane;
   ncinput val;
+  int channel_sel = 0;
+  int article_sel = 0;
 
   // Set locale to appropriate environment locale ; notcurses requires this
   setlocale(LC_ALL, "");
@@ -406,11 +454,11 @@ int main(int argc, char** argv)
 
     if (viewpane->feedplane)
     {
-      writelog_l("feedplane created with %d rows and %d cols", LOGLEVEL_INFO, opts->rows, opts->cols);
+      writelog_l(LOGLEVEL_INFO, "feedplane created with %d rows and %d cols", opts->rows, opts->cols);
     }
     else
     {
-      writelog_l("feedplane not created", LOGLEVEL_ERROR);
+      writelog_l(LOGLEVEL_ERROR, "feedplane not created");
     }
 
     opts->y = 0;
@@ -444,37 +492,51 @@ int main(int argc, char** argv)
     notcurses_render(nc_handle);
 
     // For now, we put everything on the UI thread.
-    char * stuff    = malloc(sizeof(char) * 1024);
     char * getinfo  = malloc(sizeof(char) * 1024);
-    if (stuff && getinfo)
+    if (getinfo)
     {
       do
       {
-        memset(stuff,   0, 1024);
-        memset(getinfo, 0, 1024);
-
         notcurses_get_blocking(nc_handle, &val);
-        if (val.evtype == NCTYPE_PRESS && val.id == 'a')
+        if (val.evtype == NCTYPE_PRESS)
         {
-          getInput(nc_handle, getinfo, 1024);
-          writelog_l("fetching url %s", LOGLEVEL_INFO, getinfo);
-          channelInfo * newChannel = parseFromUrl(getinfo);
-          if(newChannel)
+          if (val.id == 'a')
           {
-            writelog_l("found channel with title %s", LOGLEVEL_INFO, newChannel->title);
-            channelFreeInfo(newChannel);
+            getInput(nc_handle, getinfo, 1024);
+            writelog("fetching url %s", getinfo);
+            channelInfo * newChannel = parseFromUrl(getinfo);
+            if(newChannel)
+            {
+              writelog("found channel with title %s", newChannel->title);
+              channels[num_channels] = newChannel;
+              ++num_channels;
+              printTitles(viewpane->feedplane, channels, num_channels);
+              printArticles(viewpane->artplane, newChannel);
+            }
+            else
+            {
+              writelog_l(LOGLEVEL_ERROR, "unable to create channel for url %s", getinfo);
+            }
+            notcurses_render(nc_handle);
+            memset(getinfo, 0, 1024);
           }
-          else
+          else if (val.id == 'j')
           {
-            writelog_l("unable to create channel for url %s", LOGLEVEL_ERROR, getinfo);
+            if (channel_sel < num_channels-1)
+            {
+              ncplane_putchar_yx(viewpane->feedplane, channel_sel+2, 1, ' ');
+              ++channel_sel;
+            }
+            ncplane_putstr_yx(viewpane->feedplane, channel_sel+2, 1, ARROW_CHAR);
+            notcurses_render(nc_handle);
           }
-          notcurses_render(nc_handle);
+          else if (val.id == 'k')
+          {
+          }
         }
       }
       while (val.id != 'q');
-      free(stuff);
       free(getinfo);
-      stuff   = NULL;
       getinfo = NULL;
     }
     else
@@ -499,8 +561,12 @@ int main(int argc, char** argv)
   }
   else
   {
-    writelog_l("Error initializing notcurses.", LOGLEVEL_ERROR);
+    writelog_l(LOGLEVEL_ERROR, "Error initializing notcurses.");
     fprintf(stderr, "%s\n", "Error initializing notcurses.");
+  }
+  for (int i = 0; i < num_channels; ++i)
+  {
+    channelFreeInfo(channels[i]);
   }
   free(channels);
   closelog();
