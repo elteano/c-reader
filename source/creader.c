@@ -10,6 +10,7 @@
 #include<unistd.h>
 #include<string.h>
 #include<stdint.h>
+#include<time.h>
 
 #include<curl/curl.h>
 
@@ -31,7 +32,72 @@
 
 #define ERR_NO_MEM  5
 
-//#define DEBUG
+#define DEBUG
+
+#define LOGGING
+
+#ifdef LOGGING
+
+#define LOGLEVEL_DEBUG  90
+#define LOGLEVEL_TRACE  80
+#define LOGLEVEL_INFO   70
+#define LOGLEVEL_WARN   60
+#define LOGLEVEL_ERROR  50
+
+#define LOGBUFSIZE 1024*10
+FILE * logfile;
+void openlog()
+{
+  time_t curtime = 0;
+  struct tm tminfo;
+  char * timebuf;
+  char * filename;
+
+  memset(&tminfo, 0, sizeof(struct tm));
+
+  time(&curtime);
+  localtime_r(&curtime, &tminfo);
+
+  timebuf = malloc(120);
+  strftime(timebuf, 120, "%F", &tminfo);
+
+  filename = malloc(128);
+  snprintf(filename, 128, "%s.log", timebuf);
+
+  logfile = fopen(filename, "w");
+
+  free(timebuf);
+  free(filename);
+}
+
+void writelog(char * data)
+{
+  time_t curtime = 0;
+  struct tm tminfo;
+  memset(&tminfo, 0, sizeof(struct tm));
+
+  time(&curtime);
+  localtime_r(&curtime, &tminfo);
+
+  char * timebuf = malloc(1024);
+  strftime(timebuf, 1024, "%F %T%z", &tminfo);
+
+  char * logbuf = malloc(LOGBUFSIZE);
+  snprintf(logbuf, LOGBUFSIZE, "%s - %s\n", timebuf, data);
+  fputs(logbuf, logfile);
+
+  fflush(logfile);
+
+  free(timebuf);
+  free(logbuf);
+}
+#else
+void openlog() {}
+void writelog(char * data)
+{
+  // do nothing
+}
+#endif
 
 // Feed:
 // - Articles
@@ -46,6 +112,22 @@
 
 // Where is data stored?
 // For now, just save the XML files and display based on parsings of those.
+
+#ifdef DEBUG
+void fcpy(FILE * dest, FILE *src)
+{
+  char * buf = malloc (sizeof(char) * BUFSIZ);
+
+  while (fgets(buf, BUFSIZ, src))
+  {
+    fputs(buf, dest);
+  }
+  fflush(dest);
+
+  free(buf);
+  buf = NULL;
+}
+#endif
 
 struct __channelList {
   channelInfo * channel;
@@ -204,6 +286,7 @@ int geturl(char* url, FILE * dest)
       {
         char * sa = malloc(sizeof(char) * 1024);
         snprintf(sa, 1024, "Curl bad url: %s\n", url);
+        writelog(sa);
         fputs(sa, dest);
         free(sa);
       }
@@ -211,6 +294,7 @@ int geturl(char* url, FILE * dest)
       {
         char * sa = malloc(sizeof(char) * 1024);
         snprintf(sa, 1024, "Curl error received: %d\n", result);
+        writelog(sa);
         fputs(sa, dest);
         free(sa);
       }
@@ -222,11 +306,13 @@ int geturl(char* url, FILE * dest)
     }
     else
     {
+      writelog("geturl: curl not initialized.");
       return -2;
     }
   }
   else
   {
+    writelog("geturl: Null input received.");
     return -1;
   }
 }
@@ -238,9 +324,24 @@ channelInfo * parseFromUrl(char * url)
   channelInfo * channel = NULL;
   if (geturl(url, fptr))
   {
+#ifdef DEBUG
+    rewind(fptr);
+    FILE * tmpf = fopen("text.xml", "w");
+    fcpy(tmpf, fptr);
+    fclose(tmpf);
+    tmpf = NULL;
+#endif
     rewind(fptr);
     lseek(memfd, 0, SEEK_SET);
     channel = channelParseFd(memfd);
+  }
+  else
+  {
+#ifdef DEBUG
+    FILE *errf = fopen("err.out", "w");
+    fputs("Error: no geturl issue\n", errf);
+    fclose(errf);
+#endif
   }
   close(memfd);
   return channel;
@@ -382,6 +483,9 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
 
 int main(int argc, char** argv)
 {
+#ifdef LOGGING
+  openlog();
+#endif
   int error = 0;
   channelInfo ** channels = malloc(sizeof(channelInfo*) * 1024);
   int num_channels = 0;
@@ -396,6 +500,7 @@ int main(int argc, char** argv)
   nc_handle = notcurses_init(NULL, NULL);
   if (nc_handle)
   {
+    writelog("notcurses initialized");
     struct viewpane * viewpane;
     viewpane = calloc(1, sizeof(struct viewpane));
     int height, width;
@@ -462,12 +567,14 @@ int main(int argc, char** argv)
           if(newChannel)
           {
             snprintf(stuff, 1024, "Channel title: %s", newChannel->title);
+            writelog(stuff);
             ncplane_putstr_yx(viewpane->feedplane, 10, 10, stuff);
             channelFreeInfo(newChannel);
           }
           else
           {
             ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
+            writelog("Channel not created.");
           }
           notcurses_render(nc_handle);
         }
@@ -492,14 +599,18 @@ int main(int argc, char** argv)
       switch (error)
       {
         case ERR_NO_MEM:
-          fprintf(stderr, "Ran out of memory.\n");
+          writelog("Ran out of memory.");
           break;
       }
     }
   }
   else
   {
+    writelog("Error initializing notcurses.");
     fprintf(stderr, "%s\n", "Error initializing notcurses.");
   }
   free(channels);
+#ifdef LOGGING
+  fclose(logfile);
+#endif
 }
