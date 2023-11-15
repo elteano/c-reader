@@ -409,27 +409,30 @@ int main(int argc, char** argv)
     std_plane = notcurses_stddim_yx(nc_handle, &height, &width);
 
     // Generate sub planes
-    ncplane_options opts;
-    opts.y = 0;
-    opts.x = 0;
-    opts.name = "Feed Plane";
-    opts.rows = height;
-    opts.cols = width/3;
-    viewpane->feedplane = ncplane_create(std_plane, &opts);
+    ncplane_options * opts = malloc(sizeof(ncplane_options));;
+    memset(opts, 0, sizeof(ncplane_options));
+    opts->y = 0;
+    opts->x = 0;
+    opts->name = "Feed Plane";
+    opts->rows = height;
+    opts->cols = width/3;
+    viewpane->feedplane = ncplane_create(std_plane, opts);
 
-    opts.y = 0;
-    opts.x = width/3;
-    opts.name = "Article Plane";
-    opts.rows = height;
-    opts.cols = width/3;
-    viewpane->artplane = ncplane_create(std_plane, &opts);
+    opts->y = 0;
+    opts->x = width/3;
+    opts->name = "Article Plane";
+    opts->rows = height;
+    opts->cols = width/3;
+    viewpane->artplane = ncplane_create(std_plane, opts);
 
-    opts.y = 0;
-    opts.x = width / 3 * 2;
-    opts.name = "Info Plane";
-    opts.rows = height;
-    opts.cols = width/3;
-    viewpane->infoplane = ncplane_create(std_plane, &opts);
+    opts->y = 0;
+    opts->x = width / 3 * 2;
+    opts->name = "Info Plane";
+    opts->rows = height;
+    opts->cols = width/3;
+    viewpane->infoplane = ncplane_create(std_plane, opts);
+    free(opts);
+    opts = NULL;
 
     create_title(viewpane->feedplane, "Feeds");
     create_title(viewpane->artplane, "Articles");
