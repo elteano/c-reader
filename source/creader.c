@@ -9,6 +9,7 @@
 #include<stdlib.h>
 #include<unistd.h>
 #include<string.h>
+#include<stdint.h>
 
 #include<curl/curl.h>
 
@@ -21,9 +22,16 @@
 
 #include "parse.h"
 
-#define BORDER_CHAR "\u2503"
+#define TOP_BORDER  "\u2501"
+#define SIDE_BORDER "\u2503"
+#define TL_CORNER   "\u250f"
+#define TR_CORNER   "\u2513"
+#define BL_CORNER   "\u2517"
+#define BR_CORNER   "\u251b"
 
-//#define DEBUG
+#define ERR_NO_MEM  5
+
+#define DEBUG
 
 // Feed:
 // - Articles
@@ -170,7 +178,7 @@ int getFeed(char * feedurl)
 
 int geturl(char* url, FILE * dest)
 {
-  if (url)
+  if (url && dest)
   {
     // Assuming that URl is good
     CURL * curl = curl_easy_init();
@@ -180,22 +188,27 @@ int geturl(char* url, FILE * dest)
       CURLcode result;
 
       curl_easy_setopt(curl, CURLOPT_URL, url);
-      curl_easy_setopt(curl, CURLOPT_WRITEDATA, dest);
-
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) dest);
       result = curl_easy_perform(curl);
+
+      if (result == CURLE_OK)
+      {
+        long response_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        if (response_code >= 400)
+        {
+          result = -4;
+        }
+      }
+
       curl_easy_cleanup(curl);
 
-      if (!result)
-      {
-        rewind(dest);
-
-        return 0;
-      }
-      else
-      {
-        fprintf(stderr, "Curl error code received: %d.\n", result);
-        return result;
-      }
+      rewind(dest);
+      return result;
+    }
+    else
+    {
+      return -2;
     }
   }
   else
@@ -207,10 +220,40 @@ int geturl(char* url, FILE * dest)
 channelInfo * parseFromUrl(char * url)
 {
   int memfd = memfd_create("xml", 0);
-  FILE * fptr = fdopen(memfd, "r+");
-  geturl(url, fptr);
-
-  channelInfo * channel = channelParseFd(memfd);
+  //FILE * fptr = fdopen(memfd, "r+");
+  FILE * fptr = fopen("bwargh.xml", "w+");
+  channelInfo * channel = NULL;
+  if (geturl(url, fptr))
+  {
+#ifdef DEBUG
+    rewind(fptr);
+    lseek(memfd, 0, SEEK_SET);
+    FILE *fout = fopen("test.xml", "w");
+    if (feof(fptr))
+    {
+      fputs("EOF already.", fout);
+    }
+    else if (ferror(fptr))
+    {
+      fputs("Error.\n", fout);
+    }
+    else
+    {
+      char * rbuf = malloc(BUFSIZ);
+      while (fgets(rbuf, BUFSIZ, fptr))
+      {
+        fputs(rbuf, fout);
+      }
+      free(rbuf);
+      rbuf = NULL;
+    }
+    fflush(fout);
+    fclose(fout);
+#endif
+    rewind(fptr);
+    lseek(memfd, 0, SEEK_SET);
+    channel = channelParseFd(memfd);
+  }
   close(memfd);
   return channel;
 }
@@ -255,35 +298,99 @@ void create_title(struct ncplane * plane, char * title)
   }
 }
 
-char * getInput(struct notcurses * nc_handle)
+int getInput(struct notcurses * nc_handle, char * dest, int len)
 {
-  int width, height;
+  unsigned width, height;
+  uint32_t res;
+  ncinput val;
+  memset(&val, 0, sizeof(ncinput));
+
   struct ncplane * std_plane = notcurses_stddim_yx(nc_handle, &height, &width);
-  ncplane_options opts;
-  opts.y = height / 2 - 4;
-  opts.x = width / 2 - 30;
-  opts.name = "Input Popup";
-  opts.rows = 8;
-  opts.cols = 60;
-  struct ncplane * popup_plane = ncplane_create(std_plane, &opts);
+  ncplane_options * opts = malloc(sizeof(ncplane_options));
+  memset(opts, 0, sizeof(ncplane_options));
+  opts->y = height / 2 - 2;
+  opts->x = width / 2 - 30;
+  opts->name = "Input Popup";
+  opts->rows = 4;
+  opts->cols = 60;
+  struct ncplane * popup_plane = ncplane_create(std_plane, opts);
+  free(opts);
+
+  int rows = 0;
+  int cols = 0;
+  ncplane_dim_yx(popup_plane, &rows, &cols);
+
+  for (int c = 0; c < cols; ++c)
+  {
+    ncplane_putstr_yx(popup_plane, 0,       c, TOP_BORDER);
+    ncplane_putstr_yx(popup_plane, rows-1,  c, TOP_BORDER);
+  }
+  for (int r = 0; r < rows; ++r)
+  {
+    ncplane_putstr_yx(popup_plane, r, 0,      SIDE_BORDER);
+    ncplane_putstr_yx(popup_plane, r, cols-1, SIDE_BORDER);
+  }
+  ncplane_putstr_yx(popup_plane, 0,       0,      TL_CORNER);
+  ncplane_putstr_yx(popup_plane, 0,       cols-1, TR_CORNER);
+  ncplane_putstr_yx(popup_plane, rows-1,  0,      BL_CORNER);
+  ncplane_putstr_yx(popup_plane, rows-1,  cols-1, BR_CORNER);
+  ncplane_cursor_move_yx(popup_plane, 2, 2);
+  ncplane_putchar(popup_plane, '>');
+  notcurses_render(nc_handle);
+  char * statusStr = malloc(sizeof(char) * 1024);
+
+  int cInd = 0;
+
+  int cont = 1;
+  do
+  {
+    notcurses_get_blocking(nc_handle, &val);
+    snprintf(statusStr, 1024, "Status code: %d, %d", val.evtype, cInd);
+    ncplane_putstr_yx(std_plane, 3, 3, statusStr);
+    if (val.evtype == NCTYPE_PRESS)
+    {
+      if (val.id == NCKEY_ENTER)
+      {
+        cont = 0;
+      }
+      else
+      {
+        if (val.id == NCKEY_BACKSPACE)
+        {
+          if (cInd > 0)
+          {
+            --cInd;
+          }
+        }
+        if (dest && cInd < len)
+        {
+          dest[cInd] = val.utf8[0];
+          ncplane_putchar(popup_plane, dest[cInd]);
+          ++cInd;
+        }
+        else
+        {
+          cont = 0;
+        }
+      }
+    }
+    notcurses_render(nc_handle);
+  }
+  while (cont);
+
+  free(statusStr);
+
+  notcurses_get_blocking(nc_handle, &val);
+  ncplane_destroy(popup_plane);
+
+  return 0;
 }
 
 int main(int argc, char** argv)
 {
-  channelInfo ** channels = NULL;
-#ifdef DEBUG
-  channelInfo * channel = channelParseFname("noagenda.xml");
-  printf("channel title: %s\n", channel->title);
-  for (int i = 0; i < channel->itemCount; ++i)
-  {
-    printf("item title: %s\n", channel->items[i]->title);
-    printf("item link: %s\n", channel->items[i]->link);
-  }
-
-  channelFreeInfo(channel);
-  free(channel);
-
-#else
+  int error = 0;
+  channelInfo ** channels = malloc(sizeof(channelInfo*) * 1024);
+  int num_channels = 0;
   struct notcurses * nc_handle;
   struct ncplane * std_plane;
   ncinput val;
@@ -330,45 +437,73 @@ int main(int argc, char** argv)
 
     for (int i = 0; i < height; ++i)
     {
-      ncplane_putstr_yx(viewpane->feedplane, i, width/3-1, BORDER_CHAR);
-      ncplane_putstr_yx(viewpane->artplane, i, width/3-1, BORDER_CHAR);
+      ncplane_putstr_yx(viewpane->feedplane, i, width/3-1, SIDE_BORDER);
+      ncplane_putstr_yx(viewpane->artplane, i, width/3-1, SIDE_BORDER);
     }
     ncplane_putstr_yx(viewpane->feedplane, 1, width/3-1, "\u254b");
     ncplane_putstr_yx(viewpane->artplane, 1, width/3-1, "\u254b");
 
     notcurses_render(nc_handle);
-    // Wait for input
-    // First wait is to "clear" the input as it seems to fire too quickly
 
     // For now, we put everything on the UI thread.
-    do
+    char * stuff    = malloc(sizeof(char) * 1024);
+    char * getinfo  = malloc(sizeof(char) * 1024);
+    if (stuff && getinfo)
     {
-      notcurses_get_blocking(nc_handle, &val);
-      if (val.evtype == NCTYPE_PRESS && val.id == 'a')
+      do
       {
-        ncplane_putstr_yx(viewpane->feedplane, 1, 1, "Should get stream.");
-        notcurses_render(nc_handle);
+        memset(stuff,   0, 1024);
+        memset(getinfo, 0, 1024);
+
+        notcurses_get_blocking(nc_handle, &val);
+        if (val.evtype == NCTYPE_PRESS && val.id == 'a')
+        {
+          if (getinfo)
+          {
+            getInput(nc_handle, getinfo, 1024);
+            channelInfo * newChannel = parseFromUrl(getinfo);
+            if(newChannel)
+            {
+              snprintf(stuff, 1024, "Channel title: %s", newChannel->title);
+              ncplane_putstr_yx(viewpane->feedplane, 10, 10, stuff);
+              channelFreeInfo(newChannel);
+            }
+            else
+            {
+              ncplane_putstr_yx(viewpane->feedplane, 10, 10, "Error.");
+            }
+            notcurses_render(nc_handle);
+          }
+        }
       }
+      while (val.id != 'q');
+      free(stuff);
+      free(getinfo);
+      stuff   = NULL;
+      getinfo = NULL;
     }
-    while (val.id != 'q');
-
-    //notcurses_get_blocking(nc_handle, &val);
-    //notcurses_get_blocking(nc_handle, &val);
-
-    /*
-       pthread_t child;
-       pthread_create(&child, NULL, &print_inputs, nc_handle);
-       pthread_join(child, NULL);
-       */
+    else
+    {
+      error = ERR_NO_MEM;
+    }
 
     // Close NotCurses
     // we don't care to destroy the planes because notcurses will take them with it
     free(viewpane);
     notcurses_stop(nc_handle);
+    if (error)
+    {
+      switch (error)
+      {
+        case ERR_NO_MEM:
+          fprintf(stderr, "Ran out of memory.\n");
+          break;
+      }
+    }
   }
   else
   {
     fprintf(stderr, "%s\n", "Error initializing notcurses.");
   }
-#endif
+  free(channels);
 }

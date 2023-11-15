@@ -105,7 +105,7 @@ void parseChannelSubElement(xmlTextReader * reader, channelInfo * mod)
   xmlChar * ns = xmlTextReaderPrefix(reader);
   if (strcmp(name, "title") == 0)
   {
-    printf("title namespace is %s\n", ns);
+    //printf("title namespace is %s\n", ns);
     parseTextContainer(reader, &mod->title);
   }
   else if (strcmp(name, "link") == 0)
@@ -232,6 +232,11 @@ channelInfo * parseWithReader(xmlTextReader * reader)
           free(ns);
         break;
     }
+  }
+  if (!channel->title || !channel->description || !channel->link)
+  {
+    free(channel);
+    channel = NULL;
   }
   return channel;
 }
