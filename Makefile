@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -Og -I/usr/include/libxml2
+CFLAGS=-g -Og -I/usr/include/libxml2 -Wall
 LDLIBS=-lcurl -lnotcurses -lnotcurses-core -lpthread -lxml2
 
 creader : source/creader.o source/parse.o source/logging.o

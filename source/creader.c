@@ -19,6 +19,7 @@
 
 #include<libxml/xmlreader.h>
 #include<libxml/tree.h>
+#include<libxml/xmlstring.h>
 
 #include<sys/mman.h>
 #include<sys/param.h>
@@ -798,10 +799,8 @@ int main(int argc, char** argv)
 
                   ncplane_destroy(viewpane->infoplane);
                   viewpane->infoplane = createInfo(std_plane, channels[channel_sel]->items[item_sel], NULL);
-                  notcurses_render(nc_handle);
                 }
               }
-              notcurses_render(nc_handle);
             }
             else if (val.id == 'k')
             {
@@ -830,10 +829,8 @@ int main(int argc, char** argv)
 
                   ncplane_destroy(viewpane->infoplane);
                   viewpane->infoplane = createInfo(std_plane, channels[channel_sel]->items[item_sel], 0);
-                  notcurses_render(nc_handle);
                 }
               }
-              notcurses_render(nc_handle);
             }
             else if (val.id == 'l')
             {
@@ -857,6 +854,7 @@ int main(int argc, char** argv)
               }
             }
           }
+          notcurses_render(nc_handle);
         }
       }
       while (val.id != 'q');

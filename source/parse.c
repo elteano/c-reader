@@ -10,6 +10,10 @@
 #include "parse.h"
 #include "logging.h"
 
+// Just solve our problems with casting
+#define __UC(_s) (unsigned char*)(_s)
+#define __CC(_s) (char*)(_s)
+
 void enclosureFreeInfo(enclosureInfo * enc)
 {
   free(enc->link);
@@ -57,7 +61,7 @@ void channelFreeInfo(channelInfo * channel)
   memset(channel, 0, sizeof(channelInfo));
 }
 
-int parseTextContainer(xmlTextReader * reader, char** dest)
+int parseTextContainer(xmlTextReader * reader, uint8_t** dest)
 {
   xmlChar * name = xmlTextReaderName(reader);
   int depth = xmlTextReaderDepth(reader);
@@ -97,7 +101,7 @@ int parseTextContainer(xmlTextReader * reader, char** dest)
 
   while (xmlTextReaderRead(reader) > 0)
   {
-    if (depth = xmlTextReaderDepth(reader))
+    if (depth == xmlTextReaderDepth(reader))
     {
       free(name);
       return 0;
@@ -114,18 +118,18 @@ void parseChannelSubElement(xmlTextReader * reader, channelInfo * mod)
   // Now we determine how to handle that node
   xmlChar * name = xmlTextReaderName(reader);
   xmlChar * ns = xmlTextReaderPrefix(reader);
-  if (strcmp(name, "title") == 0)
+  if (xmlStrEqual(name, __UC("title")))
   {
     //printf("title namespace is %s\n", ns);
     parseTextContainer(reader, &mod->title);
     writelog_l(LOGLEVEL_DEBUG, "found channel title %s", mod->title);
   }
-  else if (strcmp(name, "link") == 0)
+  else if (xmlStrEqual(name, __UC("link")))
   {
     parseTextContainer(reader, &mod->link);
     writelog_l(LOGLEVEL_DEBUG, "found channel link %s", mod->link);
   }
-  else if (strcmp(name, "description") == 0)
+  else if (xmlStrEqual(name, __UC("description")))
   {
     parseTextContainer(reader, &mod->description);
     writelog_l(LOGLEVEL_DEBUG, "found channel description %.10s", mod->description);
@@ -155,16 +159,16 @@ void parseEnclosureContainer(xmlTextReader * reader, itemInfo * item)
           attrname = xmlTextReaderName(reader);
           val = xmlTextReaderValue(reader);
           writelog_l(LOGLEVEL_DEBUG, "attribute node with depth %d and name %s; value %s", cdepth, attrname, val);
-          if (xmlStrEqual(attrname, "url"))
+          if (xmlStrEqual(attrname, __UC("url")))
           {
             enc->link = val;
           }
-          else if (xmlStrEqual(attrname, "length"))
+          else if (xmlStrEqual(attrname, __UC("length")))
           {
-            enc->length = atoi(val);
+            enc->length = atoi(__CC(val));
             free(val);
           }
-          else if (xmlStrEqual(attrname, "type"))
+          else if (xmlStrEqual(attrname, __UC("type")))
           {
             enc->type = val;
           }
@@ -208,22 +212,22 @@ int parseItemSubElement(xmlTextReader * reader, channelInfo * mod)
     {
       case XML_READER_TYPE_ELEMENT:
         name = xmlTextReaderName(reader);
-        if (strcmp(name, "title") == 0)
+        if (xmlStrEqual(name, __UC("title")))
         {
           parseTextContainer(reader, &item->title);
           writelog_l(LOGLEVEL_DEBUG, "found item title %s", item->title);
         }
-        else if (strcmp(name, "description") == 0)
+        else if (xmlStrEqual(name, __UC("description")))
         {
           parseTextContainer(reader, &item->description);
           writelog_l(LOGLEVEL_DEBUG, "found item description %s", item->description);
         }
-        else if (strcmp(name, "link") == 0)
+        else if (xmlStrEqual(name, __UC("link")))
         {
           parseTextContainer(reader, &item->link);
           writelog_l(LOGLEVEL_DEBUG, "found item link %s", item->link);
         }
-        else if (strcmp(name, "enclosure") == 0)
+        else if (xmlStrEqual(name, __UC("enclosure")))
         {
           writelog_l(LOGLEVEL_DEBUG, "found enclosure element!");
           parseEnclosureContainer(reader, item);
@@ -295,15 +299,15 @@ channelInfo * parseWithReader(xmlTextReader * reader)
       case XML_READER_TYPE_ELEMENT:
         name = xmlTextReaderName(reader);
         ns = xmlTextReaderPrefix(reader);
-        if (strcmp(name, "item") == 0)
+        if (xmlStrEqual(name, __UC("item")))
         {
           parseItemSubElement(reader, channel);
         }
-        else if (strcmp(name, "image") == 0)
+        else if (xmlStrEqual(name, __UC("image")))
         {
           skipNext = true;
         }
-        else if (ns && strcmp(ns, "podcast") == 0)
+        else if (ns && xmlStrEqual(ns, __UC("podcast")))
         {
           skipNext = true;
         }

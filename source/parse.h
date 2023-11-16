@@ -1,15 +1,20 @@
+#ifndef __PARSE_H
+#define __PARSE_H
+
+#include<stdint.h>
+
 typedef struct __enclosureInfo
 {
-  char * link;
-  int length;
-  char * type;
+  uint8_t * link;
+  size_t length;
+  uint8_t * type;
 } enclosureInfo;
 
 typedef struct __itemInfo
 {
-  char * title;
-  char * link;
-  char * description;
+  uint8_t * title;
+  uint8_t * link;
+  uint8_t * description;
   // TODO add multiple-enclosure support
   enclosureInfo * enclosure;
 } itemInfo;
@@ -19,16 +24,18 @@ void itemFreeInfo(itemInfo*);
 
 typedef struct __channelInfo
 {
-  char * title;
-  char * link;
-  char * description;
+  uint8_t * title;
+  uint8_t * link;
+  uint8_t * description;
   // TODO better storage of items in struct
   itemInfo ** items;
-  int itemCount;
-  int itemCapacity;
+  size_t itemCount;
+  size_t itemCapacity;
 } channelInfo;
 
 void channelFreeInfo(channelInfo*);
 
 channelInfo * channelParseFd(int);
 channelInfo * channelParseFname(char *);
+
+#endif
