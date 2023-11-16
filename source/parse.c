@@ -5,43 +5,62 @@
 
 #include<libxml/parser.h>
 #include<libxml/xmlreader.h>
+#include<libxml/xmlstring.h>
 
 #include "parse.h"
 #include "logging.h"
 
+void enclosureFreeInfo(enclosureInfo * enc)
+{
+  free(enc->link);
+  free(enc->type);
+
+  memset(enc, 0, sizeof(enclosureInfo));
+}
+
+void itemFreeInfo(itemInfo * item)
+{
+
+  if (item->link)
+    free(item->link);
+  if (item->title)
+    free(item->title);
+  if (item->description)
+    free(item->description);
+  if (item->enclosure)
+  {
+    enclosureFreeInfo(item->enclosure);
+    free(item->enclosure);
+  }
+
+  memset(item, 0, sizeof(itemInfo));
+}
+
 void channelFreeInfo(channelInfo * channel)
 {
   if (channel->title)
-  {
     free(channel->title);
-    channel->title = NULL;
-  }
   if (channel->link)
-  {
     free(channel->link);
-    channel->link = NULL;
-  }
   if (channel->description)
-  {
     free(channel->description);
-    channel->description = NULL;
-  }
   if (channel->items)
   {
     for (int i = 0; i < channel->itemCount; ++i)
     {
+      itemFreeInfo(channel->items[i]);
       free(channel->items[i]);
     }
     free(channel->items);
-    channel->items = NULL;
-    channel->itemCount = 0;
   }
+
+  memset(channel, 0, sizeof(channelInfo));
 }
 
 int parseTextContainer(xmlTextReader * reader, char** dest)
 {
   xmlChar * name = xmlTextReaderName(reader);
-  xmlChar * oname;
+  int depth = xmlTextReaderDepth(reader);
   if (xmlTextReaderIsEmptyElement(reader))
   {
     // If we're empty just skip
@@ -78,19 +97,10 @@ int parseTextContainer(xmlTextReader * reader, char** dest)
 
   while (xmlTextReaderRead(reader) > 0)
   {
-    if (xmlTextReaderNodeType(reader) == XML_READER_TYPE_END_ELEMENT)
+    if (depth = xmlTextReaderDepth(reader))
     {
-      oname = xmlTextReaderName(reader);
-      if (strcmp(name, oname))
-      {
-        free(oname);
-        free(name);
-        return 0;
-      }
-      else
-      {
-        free(oname);
-      }
+      free(name);
+      return 0;
     }
   }
   free(name);
@@ -124,6 +134,65 @@ void parseChannelSubElement(xmlTextReader * reader, channelInfo * mod)
   free(name);
 }
 
+void parseEnclosureContainer(xmlTextReader * reader, itemInfo * item)
+{
+  int depth = xmlTextReaderDepth(reader);
+  writelog_l(LOGLEVEL_DEBUG, "parsing enclosure at depth %d", depth);
+  enclosureInfo * enc = malloc(sizeof(enclosureInfo));
+  // Assumes the reader is on the enclosure element
+  if (xmlTextReaderIsEmptyElement(reader))
+  {
+    // All the enclosure information is in properties
+    int cont = 1;
+    while (cont && xmlTextReaderMoveToNextAttribute(reader) > 0)
+    {
+      int cdepth = xmlTextReaderDepth(reader);
+      xmlChar * attrname = NULL;
+      xmlChar * val = NULL;
+      switch(xmlTextReaderNodeType(reader))
+      {
+        case XML_READER_TYPE_ATTRIBUTE:
+          attrname = xmlTextReaderName(reader);
+          val = xmlTextReaderValue(reader);
+          writelog_l(LOGLEVEL_DEBUG, "attribute node with depth %d and name %s; value %s", cdepth, attrname, val);
+          if (xmlStrEqual(attrname, "url"))
+          {
+            enc->link = val;
+          }
+          else if (xmlStrEqual(attrname, "length"))
+          {
+            enc->length = atoi(val);
+            free(val);
+          }
+          else if (xmlStrEqual(attrname, "type"))
+          {
+            enc->type = val;
+          }
+          else
+          {
+            free(val);
+          }
+          free(attrname);
+          break;
+        case XML_READER_TYPE_END_ELEMENT:
+          writelog_l(LOGLEVEL_DEBUG, "end element found at depth %d", cdepth);
+          cont = 0;
+          break;
+      }
+    }
+    item->enclosure = enc;
+  }
+  else
+  {
+    writelog_l(LOGLEVEL_WARN, "Found enclosure with contents!");
+    while (xmlTextReaderRead(reader) > 0 && depth < xmlTextReaderDepth(reader))
+    {
+      // logic is in condition
+      // just consume elements
+    }
+  }
+}
+
 int parseItemSubElement(xmlTextReader * reader, channelInfo * mod)
 {
   itemInfo * item = malloc(sizeof(itemInfo));
@@ -131,7 +200,6 @@ int parseItemSubElement(xmlTextReader * reader, channelInfo * mod)
 
   // Stack variables to handle volatile responses
   xmlChar * name;
-  xmlChar * ns;
   bool cont = true;
   int depth = xmlTextReaderDepth(reader);
   while (cont && xmlTextReaderRead(reader) > 0)
@@ -143,23 +211,35 @@ int parseItemSubElement(xmlTextReader * reader, channelInfo * mod)
         if (strcmp(name, "title") == 0)
         {
           parseTextContainer(reader, &item->title);
+          writelog_l(LOGLEVEL_DEBUG, "found item title %s", item->title);
         }
         else if (strcmp(name, "description") == 0)
         {
           parseTextContainer(reader, &item->description);
+          writelog_l(LOGLEVEL_DEBUG, "found item description %s", item->description);
         }
         else if (strcmp(name, "link") == 0)
         {
           parseTextContainer(reader, &item->link);
+          writelog_l(LOGLEVEL_DEBUG, "found item link %s", item->link);
+        }
+        else if (strcmp(name, "enclosure") == 0)
+        {
+          writelog_l(LOGLEVEL_DEBUG, "found enclosure element!");
+          parseEnclosureContainer(reader, item);
         }
         free(name);
+        name = NULL;
         break;
 
       case XML_READER_TYPE_END_ELEMENT:
+        name = xmlTextReaderName(reader);
         if (depth == xmlTextReaderDepth(reader))
         {
           cont = false;
         }
+        free(name);
+        name = NULL;
         break;
     }
   }

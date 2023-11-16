@@ -26,14 +26,20 @@
 #include "parse.h"
 #include "logging.h"
 
-#define TOP_BORDER  "\u2501"
-#define SIDE_BORDER "\u2503"
-#define TL_CORNER   "\u250f"
-#define TR_CORNER   "\u2513"
-#define BL_CORNER   "\u2517"
-#define BR_CORNER   "\u251b"
+#define TOP_PADDING 3
+#define INTER_PADDING 3
+#define SIDE_PADDING 3
 
-#define ARROW_CHAR "\u29b6"
+#define TOP_BORDER_CHAR  "\u2501"
+#define SIDE_BORDER_CHAR "\u2503"
+#define TL_CORNER_CHAR   "\u250f"
+#define TR_CORNER_CHAR   "\u2513"
+#define BL_CORNER_CHAR   "\u2517"
+#define BR_CORNER_CHAR   "\u251b"
+#define CT_CORNER_CHAR   "\u254b"
+
+#define ARROW_CHAR "\u21d2"
+#define SILENT_ARROW_CHAR "\u2192"
 
 #define ERR_NO_MEM  5
 
@@ -69,6 +75,12 @@ void fcpy(FILE * dest, FILE *src)
   buf = NULL;
 }
 #endif
+
+enum cursor_pos_t
+{
+  POS_CHANNEL,
+  POS_ITEM
+};
 
 struct __channelList {
   channelInfo * channel;
@@ -151,6 +163,7 @@ int removeChannel(channelList * list, channelInfo * channel)
 
 struct viewpane
 {
+  struct ncplane * headerplane;
   struct ncplane * feedplane;
   struct ncplane * artplane;
   struct ncplane * infoplane;
@@ -264,16 +277,16 @@ void * print_inputs(void * arg)
 
 void create_title(struct ncplane * plane, char * title)
 {
-  int width, height;
+  unsigned width, height;
   ncplane_dim_yx(plane, &height, &width);
   ncplane_putstr_yx(plane, 0, 0, title);
   for (int i = 0; i < width; ++i)
   {
-    ncplane_putstr_yx(plane, 1, i, TOP_BORDER);
+    ncplane_putstr_yx(plane, 1, i, TOP_BORDER_CHAR);
   }
 }
 
-int getInput(struct notcurses * nc_handle, char * dest, int len)
+int getInput(struct notcurses * nc_handle, char * dest, int len, char * label)
 {
   unsigned width, height;
   uint32_t res;
@@ -297,18 +310,22 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
 
   for (int c = 0; c < cols; ++c)
   {
-    ncplane_putstr_yx(popup_plane, 0,       c, TOP_BORDER);
-    ncplane_putstr_yx(popup_plane, rows-1,  c, TOP_BORDER);
+    ncplane_putstr_yx(popup_plane, 0,       c, TOP_BORDER_CHAR);
+    ncplane_putstr_yx(popup_plane, rows-1,  c, TOP_BORDER_CHAR);
   }
   for (int r = 0; r < rows; ++r)
   {
-    ncplane_putstr_yx(popup_plane, r, 0,      SIDE_BORDER);
-    ncplane_putstr_yx(popup_plane, r, cols-1, SIDE_BORDER);
+    ncplane_putstr_yx(popup_plane, r, 0,      SIDE_BORDER_CHAR);
+    ncplane_putstr_yx(popup_plane, r, cols-1, SIDE_BORDER_CHAR);
   }
-  ncplane_putstr_yx(popup_plane, 0,       0,      TL_CORNER);
-  ncplane_putstr_yx(popup_plane, 0,       cols-1, TR_CORNER);
-  ncplane_putstr_yx(popup_plane, rows-1,  0,      BL_CORNER);
-  ncplane_putstr_yx(popup_plane, rows-1,  cols-1, BR_CORNER);
+  ncplane_putstr_yx(popup_plane, 0,       0,      TL_CORNER_CHAR);
+  ncplane_putstr_yx(popup_plane, 0,       cols-1, TR_CORNER_CHAR);
+  ncplane_putstr_yx(popup_plane, rows-1,  0,      BL_CORNER_CHAR);
+  ncplane_putstr_yx(popup_plane, rows-1,  cols-1, BR_CORNER_CHAR);
+  if (label)
+  {
+    ncplane_putstr_yx(popup_plane, 1, 2, label);
+  }
   ncplane_cursor_move_yx(popup_plane, 2, 2);
   ncplane_putchar(popup_plane, '>');
   notcurses_render(nc_handle);
@@ -319,7 +336,7 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
   do
   {
     notcurses_get_blocking(nc_handle, &val);
-    if (val.evtype == NCTYPE_PRESS)
+    if (val.evtype == NCTYPE_PRESS || val.evtype == NCTYPE_REPEAT)
     {
       if (val.id == NCKEY_ENTER)
       {
@@ -331,8 +348,25 @@ int getInput(struct notcurses * nc_handle, char * dest, int len)
         {
           if (cInd > 0)
           {
+            unsigned xloc = ncplane_cursor_x(popup_plane);
+            writelog_l(LOGLEVEL_DEBUG, "cursor at %u", xloc);
+            ncplane_putchar_yx(popup_plane, -1, xloc-1, ' ');
+            ncplane_cursor_move_yx(popup_plane, -1, xloc-1);
             --cInd;
           }
+        }
+        if (ncinput_ctrl_p(&val) && val.id == 'c' || val.id == 'C')
+        {
+          // Clear everything
+          unsigned xloc = ncplane_cursor_x(popup_plane);
+          unsigned xdest = xloc - cInd;
+          ncplane_cursor_move_yx(popup_plane, -1, xdest);
+          memset(dest, 0, len);
+          for (; cInd > 0; --cInd)
+          {
+            ncplane_putchar(popup_plane, ' ');
+          }
+          ncplane_cursor_move_yx(popup_plane, -1, xdest);
         }
         else
         {
@@ -374,7 +408,7 @@ int printTitles(struct ncplane * plane, channelInfo ** channels, int numChannels
       for (int i = 0; i < numChannels; ++i)
       {
         writelog_l(LOGLEVEL_DEBUG, "printing channel title %s", channels[i]->title);
-        ncplane_putstr_yx(plane, i+2, 2, channels[i]->title);
+        ncplane_putstr_yx(plane, i, 1, channels[i]->title);
       }
     }
     else
@@ -411,9 +445,164 @@ int printArticles(struct ncplane * plane, channelInfo * channel)
     {
       strcpy(buf, channel->items[i]->title);
     }
-    ncplane_putstr_yx(plane, i+2, 2, buf);
+    ncplane_putstr_yx(plane, i, 1, buf);
   }
   free(buf);
+}
+
+struct ncplane * createArticles(struct ncplane * base, channelInfo * channel)
+{
+  writelog_l(LOGLEVEL_TRACE, "creating new article plane for %s", channel->title);
+  unsigned rows;
+  unsigned cols;
+  unsigned indiv_cols;
+  struct ncplane * ret;
+  struct ncplane_options opts;
+
+  ncplane_dim_yx(base, &rows, &cols);
+  indiv_cols = (cols - SIDE_PADDING*2 - INTER_PADDING*2)/3;
+
+  memset(&opts, 0, sizeof(ncplane_options));
+  opts.y = TOP_PADDING;
+  opts.x = SIDE_PADDING + indiv_cols + INTER_PADDING;
+  opts.name = "Article Plane";
+  opts.rows = rows - TOP_PADDING;
+  opts.cols = indiv_cols;
+
+  ret = ncplane_create(base, &opts);
+  printArticles(ret, channel);
+  return ret;
+}
+
+struct ncplane * createHeader(struct ncplane * base)
+{
+  unsigned rows, cols;
+  ncplane_dim_yx(base, &rows, &cols);
+
+  // Set up the plane with the appropriate size
+  ncplane_options opts;
+  memset(&opts, 0, sizeof(ncplane_options));
+  opts.y = 0;
+  opts.x = 0;
+  opts.name = "Header Plane";
+  opts.rows = TOP_PADDING;
+  opts.cols = cols;
+  unsigned space = (cols - SIDE_PADDING * 2 - INTER_PADDING * 2)/3;
+
+  struct ncplane * ret = ncplane_create(base, &opts);
+
+  // Draw the headers
+  ncplane_cursor_move_yx(ret, 0, 0);
+  for (int i = 0; i < cols; ++i)
+  {
+    ncplane_putstr(ret, "\u259e");
+  }
+  ncplane_cursor_move_yx(ret, TOP_PADDING-1, 0);
+  for (int i = 0; i < cols; ++i)
+  {
+    ncplane_putstr(ret, TOP_BORDER_CHAR);
+  }
+  for (int r = 1; r < TOP_PADDING-1; ++r)
+  {
+    ncplane_putstr_yx(ret, r, SIDE_PADDING+space+INTER_PADDING/2, SIDE_BORDER_CHAR);
+    ncplane_putstr_yx(ret, r, SIDE_PADDING+space*2+INTER_PADDING, SIDE_BORDER_CHAR);
+  }
+  ncplane_putstr_yx(ret, TOP_PADDING-1, SIDE_PADDING+space+INTER_PADDING/2, CT_CORNER_CHAR);
+  ncplane_putstr_yx(ret, TOP_PADDING-1, SIDE_PADDING+space*2+INTER_PADDING, CT_CORNER_CHAR);
+
+  ncplane_putstr_yx(ret, TOP_PADDING-2, SIDE_PADDING, "Feeds");
+  ncplane_putstr_yx(ret, TOP_PADDING-2, SIDE_PADDING+space+INTER_PADDING, "Articles");
+  ncplane_putstr_yx(ret, TOP_PADDING-2, SIDE_PADDING+space*2+INTER_PADDING*2, "Info");
+
+  return ret;
+}
+
+struct ncplane * createInfo(struct ncplane * base, itemInfo * item, struct notcurses * nc_handle)
+{
+  writelog_l(LOGLEVEL_TRACE, "creating new item plane for %s", item->title);
+  unsigned rows;
+  unsigned cols;
+  unsigned indiv_cols;
+  struct ncplane * ret;
+  struct ncplane_options opts;
+
+  ncplane_dim_yx(base, &rows, &cols);
+  indiv_cols = (cols - SIDE_PADDING*2 - INTER_PADDING*2)/3;
+
+  memset(&opts, 0, sizeof(ncplane_options));
+  opts.y = TOP_PADDING;
+  opts.x = SIDE_PADDING + indiv_cols*2 + INTER_PADDING*2;
+  opts.name = "Item Plane";
+  opts.rows = rows - TOP_PADDING;
+  opts.cols = indiv_cols;
+
+  ret = ncplane_create(base, &opts);
+  size_t bytes = 0;
+  if (nc_handle && item->enclosure && item->enclosure->link)
+  {
+    writelog_l(LOGLEVEL_TRACE, "getting info with image");
+    // Download the file, have NotCurses read the file, calculate the location, and display
+    FILE * tmpfile = fopen("/tmp/imgdata.tmp", "w+");
+    geturl(item->enclosure->link, tmpfile);
+    fflush(tmpfile);
+    fclose(tmpfile);
+    tmpfile = NULL;
+    struct ncvisual * img = ncvisual_from_file("/tmp/imgdata.tmp");
+
+    // Set the options to determine location and size
+    struct ncvisual_options * ncv_opts = calloc(1, sizeof(struct ncvisual_options));
+    // geom should be populated based on the options
+    struct ncvgeom * ncv_geom = calloc(1, sizeof(struct ncvgeom));
+
+    // base plane
+    ncv_opts->n = ret;
+    ncv_opts->scaling = NCSCALE_STRETCH;
+    ncv_opts->y = 0;
+    ncv_opts->x = 0;
+    ncv_opts->begy = 0;
+    ncv_opts->begx = 0;
+    ncv_opts->leny = 20;
+    ncv_opts->lenx = indiv_cols;
+    ncv_opts->blitter = NCBLIT_3x2;
+    ncv_opts->flags = NCVISUAL_OPTION_BLEND;
+    ncv_opts->transcolor = 0;
+    ncv_opts->pxoffy = 0;
+    ncv_opts->pxoffx = 0;
+    writelog_l(LOGLEVEL_TRACE, "opts set for render");
+
+    /*
+    ncvisual_geom(nc_handle, img, ncv_opts, ncv_geom);
+    writelog_l(LOGLEVEL_DEBUG, "geom received: pixel size (%ux%u), cell (%ux%u); blitter %u", ncv_geom->pixx, ncv_geom->pixy, ncv_geom->rcellx, ncv_geom->rcelly, ncv_geom->blitter);
+    */
+    ncvisual_blit(nc_handle, img, ncv_opts);
+    writelog_l(LOGLEVEL_TRACE, "blit called");
+    if (item->description)
+    {
+      ncplane_puttext(ret, 20, NCALIGN_LEFT, item->description, &bytes);
+      writelog_l(LOGLEVEL_TRACE, "puttext reports %u bytes", bytes);
+    }
+    else
+    {
+      writelog_l(LOGLEVEL_WARN, "no description for item %s", item->title);
+    }
+    //remove("/tmp/imgdata.tmp");
+
+    free(ncv_opts);
+    free(ncv_geom);
+  }
+  else
+  {
+    if (item->description)
+    {
+      ncplane_puttext(ret, 0, NCALIGN_LEFT, item->description, &bytes);
+      writelog_l(LOGLEVEL_TRACE, "puttext reports %u bytes", bytes);
+    }
+    else
+    {
+      writelog_l(LOGLEVEL_WARN, "no description for item %s", item->title);
+    }
+  }
+  return ret;
 }
 
 int main(int argc, char** argv)
@@ -425,8 +614,9 @@ int main(int argc, char** argv)
   struct notcurses * nc_handle;
   struct ncplane * std_plane;
   ncinput val;
+  enum cursor_pos_t cursor_pos = POS_CHANNEL;
   int channel_sel = 0;
-  int article_sel = 0;
+  int item_sel = 0;
 
   // Set locale to appropriate environment locale ; notcurses requires this
   setlocale(LC_ALL, "");
@@ -443,51 +633,50 @@ int main(int argc, char** argv)
     std_plane = notcurses_stddim_yx(nc_handle, &height, &width);
 
     // Generate sub planes
+    // The sub planes only list the data, so they will be tossed and recreated as needed
+    unsigned indiv_cols = (width - SIDE_PADDING*2 - INTER_PADDING*2)/3;
     ncplane_options * opts = malloc(sizeof(ncplane_options));;
     memset(opts, 0, sizeof(ncplane_options));
-    opts->y = 0;
-    opts->x = 0;
+
+    viewpane->headerplane = createHeader(std_plane);
+
+    opts->y = TOP_PADDING;
+    opts->x = SIDE_PADDING;
     opts->name = "Feed Plane";
-    opts->rows = height;
-    opts->cols = width/3;
+    opts->rows = height - TOP_PADDING;
+    opts->cols = indiv_cols;
     viewpane->feedplane = ncplane_create(std_plane, opts);
 
-    if (viewpane->feedplane)
-    {
-      writelog_l(LOGLEVEL_INFO, "feedplane created with %d rows and %d cols", opts->rows, opts->cols);
-    }
-    else
-    {
-      writelog_l(LOGLEVEL_ERROR, "feedplane not created");
-    }
-
-    opts->y = 0;
-    opts->x = width/3;
+    //opts->y = TOP_PADDING;
+    opts->x = indiv_cols + SIDE_PADDING + INTER_PADDING;
     opts->name = "Article Plane";
-    opts->rows = height;
-    opts->cols = width/3;
+    //opts->rows = height - TOP_PADDING;
+    //opts->cols = indiv_cols;
     viewpane->artplane = ncplane_create(std_plane, opts);
 
-    opts->y = 0;
-    opts->x = width / 3 * 2;
+    //opts->y = TOP_PADDING;
+    opts->x = indiv_cols*2 + SIDE_PADDING + INTER_PADDING*2;
     opts->name = "Info Plane";
-    opts->rows = height;
-    opts->cols = width/3;
+    //opts->rows = height - TOP_PADDING;
+    //opts->cols = indiv_cols;
     viewpane->infoplane = ncplane_create(std_plane, opts);
+
     free(opts);
     opts = NULL;
 
+    /*
     create_title(viewpane->feedplane, "Feeds");
     create_title(viewpane->artplane, "Articles");
     create_title(viewpane->infoplane, "Info");
+    */
 
     for (int i = 0; i < height; ++i)
     {
-      ncplane_putstr_yx(viewpane->feedplane, i, width/3-1, SIDE_BORDER);
-      ncplane_putstr_yx(viewpane->artplane, i, width/3-1, SIDE_BORDER);
+      ncplane_putstr_yx(viewpane->feedplane, i, width/3-1, SIDE_BORDER_CHAR);
+      ncplane_putstr_yx(viewpane->artplane, i, width/3-1, SIDE_BORDER_CHAR);
     }
-    ncplane_putstr_yx(viewpane->feedplane, 1, width/3-1, "\u254b");
-    ncplane_putstr_yx(viewpane->artplane, 1, width/3-1, "\u254b");
+    ncplane_putstr_yx(viewpane->feedplane, 1, width/3-1, CT_CORNER_CHAR);
+    ncplane_putstr_yx(viewpane->artplane, 1, width/3-1, CT_CORNER_CHAR);
 
     notcurses_render(nc_handle);
 
@@ -502,36 +691,133 @@ int main(int argc, char** argv)
         {
           if (val.id == 'a')
           {
-            getInput(nc_handle, getinfo, 1024);
-            writelog("fetching url %s", getinfo);
-            channelInfo * newChannel = parseFromUrl(getinfo);
-            if(newChannel)
+            getInput(nc_handle, getinfo, 1024, "Feed URL");
+            if (strlen(getinfo))
             {
-              writelog("found channel with title %s", newChannel->title);
-              channels[num_channels] = newChannel;
-              ++num_channels;
-              printTitles(viewpane->feedplane, channels, num_channels);
-              printArticles(viewpane->artplane, newChannel);
+              writelog("fetching url %s", getinfo);
+              channelInfo * newChannel = parseFromUrl(getinfo);
+              if(newChannel)
+              {
+                writelog("found channel with title %s", newChannel->title);
+                channels[num_channels] = newChannel;
+                ++num_channels;
+                printTitles(viewpane->feedplane, channels, num_channels);
+
+                ncplane_destroy(viewpane->artplane);
+                viewpane->artplane = createArticles(std_plane, newChannel);
+              }
+              else
+              {
+                writelog_l(LOGLEVEL_ERROR, "unable to create channel for url %s", getinfo);
+              }
+              notcurses_render(nc_handle);
             }
             else
             {
-              writelog_l(LOGLEVEL_ERROR, "unable to create channel for url %s", getinfo);
+              writelog("empty response from user, skipping fetch");
             }
-            notcurses_render(nc_handle);
             memset(getinfo, 0, 1024);
           }
-          else if (val.id == 'j')
+          else if ((val.id == 'l' || val.id == 'L') && ncinput_ctrl_p(&val))
           {
-            if (channel_sel < num_channels-1)
-            {
-              ncplane_putchar_yx(viewpane->feedplane, channel_sel+2, 1, ' ');
-              ++channel_sel;
-            }
-            ncplane_putstr_yx(viewpane->feedplane, channel_sel+2, 1, ARROW_CHAR);
-            notcurses_render(nc_handle);
+            writelog_l(LOGLEVEL_DEBUG, "refreshing notcurses");
+            //TODO resize the panels
+            notcurses_refresh(nc_handle, NULL, NULL);
           }
-          else if (val.id == 'k')
+          else if (num_channels > 0)
           {
+            if (val.id == NCKEY_ENTER)
+            {
+              writelog_l(LOGLEVEL_DEBUG, "Want to download url from (%d, %d): %s", channel_sel, item_sel, channels[channel_sel]->items[item_sel]->link);
+              ncplane_destroy(viewpane->infoplane);
+              viewpane->infoplane = createInfo(std_plane, channels[channel_sel]->items[item_sel], nc_handle);
+              notcurses_render(nc_handle);
+            }
+            else if (val.id == 'j')
+            {
+              if (cursor_pos == POS_CHANNEL)
+              {
+                if (channel_sel < num_channels-1)
+                {
+                  ncplane_putchar_yx(viewpane->feedplane, channel_sel, 0, ' ');
+                  ++channel_sel;
+
+                  ncplane_destroy(viewpane->artplane);
+                  viewpane->artplane = createArticles(std_plane, channels[channel_sel]);
+
+                  item_sel = 0;
+                  ncplane_putstr_yx(viewpane->artplane, item_sel, 0, SILENT_ARROW_CHAR);
+                }
+                ncplane_putstr_yx(viewpane->feedplane, channel_sel, 0, ARROW_CHAR);
+              }
+              else if (cursor_pos == POS_ITEM)
+              {
+                if (item_sel < channels[channel_sel]->itemCount-1)
+                {
+                  ncplane_putchar_yx(viewpane->artplane, item_sel, 0, ' ');
+                  ++item_sel;
+                  ncplane_putstr_yx(viewpane->artplane, item_sel, 0, ARROW_CHAR);
+
+                  ncplane_destroy(viewpane->infoplane);
+                  viewpane->infoplane = createInfo(std_plane, channels[channel_sel]->items[item_sel], NULL);
+                  notcurses_render(nc_handle);
+                }
+              }
+              notcurses_render(nc_handle);
+            }
+            else if (val.id == 'k')
+            {
+              if (cursor_pos == POS_CHANNEL)
+              {
+                if (channel_sel > 0)
+                {
+                  ncplane_putchar_yx(viewpane->feedplane, channel_sel, 0, ' ');
+                  --channel_sel;
+
+                  ncplane_destroy(viewpane->artplane);
+                  viewpane->artplane = createArticles(std_plane, channels[channel_sel]);
+
+                  item_sel = 0;
+                  ncplane_putstr_yx(viewpane->artplane, item_sel, 0, SILENT_ARROW_CHAR);
+                }
+                ncplane_putstr_yx(viewpane->feedplane, channel_sel, 0, ARROW_CHAR);
+              }
+              else if (cursor_pos == POS_ITEM)
+              {
+                if (item_sel > 0)
+                {
+                  ncplane_putchar_yx(viewpane->artplane, item_sel, 0, ' ');
+                  --item_sel;
+                  ncplane_putstr_yx(viewpane->artplane, item_sel, 0, ARROW_CHAR);
+
+                  ncplane_destroy(viewpane->infoplane);
+                  viewpane->infoplane = createInfo(std_plane, channels[channel_sel]->items[item_sel], 0);
+                  notcurses_render(nc_handle);
+                }
+              }
+              notcurses_render(nc_handle);
+            }
+            else if (val.id == 'l')
+            {
+              if (cursor_pos == POS_CHANNEL)
+              {
+                writelog_l(LOGLEVEL_DEBUG, "moving cursor to item plane");
+                ncplane_putstr_yx(viewpane->feedplane, channel_sel, 0, SILENT_ARROW_CHAR);
+                writelog_l(LOGLEVEL_DEBUG, "putting arrow on item plane");
+                ncplane_putstr_yx(viewpane->artplane, item_sel, 0, ARROW_CHAR);
+                writelog_l(LOGLEVEL_DEBUG, "done");
+                cursor_pos = POS_ITEM;
+              }
+            }
+            else if(val.id == 'h')
+            {
+              if (cursor_pos == POS_ITEM)
+              {
+                cursor_pos = POS_CHANNEL;
+                ncplane_putstr_yx(viewpane->artplane, item_sel, 0, SILENT_ARROW_CHAR);
+                ncplane_putstr_yx(viewpane->feedplane, channel_sel, 0, ARROW_CHAR);
+              }
+            }
           }
         }
       }
