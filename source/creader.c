@@ -286,7 +286,15 @@ void create_title(struct ncplane * plane, char * title)
   }
 }
 
-int getInput(struct notcurses * nc_handle, char * dest, int len, char * label)
+/*
+ * Prints a popup box and allows user to type data. Returns the data typed by the user.
+ *
+ * nc_handle: handle to primary notcurses struct
+ * dest: buffer to which to write data
+ * len: size of the buffer
+ * label: can be NULL; title to print on the prompt
+ */
+int getInput(struct notcurses * nc_handle, char * dest, size_t len, char * label)
 {
   unsigned width, height;
   uint32_t res;
@@ -398,6 +406,13 @@ int getInput(struct notcurses * nc_handle, char * dest, int len, char * label)
   return 0;
 }
 
+/*
+ * Print channel title information onto a plane given a list and quantity of channels.
+ *
+ * plane: target for channel title writing
+ * channls: list of pointers to channels with information
+ * numChannels: number of channels in above list
+ */
 int printTitles(struct ncplane * plane, channelInfo ** channels, int numChannels)
 {
   if (channels)
@@ -422,6 +437,14 @@ int printTitles(struct ncplane * plane, channelInfo ** channels, int numChannels
   }
 }
 
+/*
+ * Print items from the given channel upon the given plane. Most likely
+ * createArticles should be used and a new plane created. This makes no attempt
+ * to clear any previous drawings upon the plane.
+ *
+ * plane: Plane upon which to write item information
+ * channel: source channel providing item information
+ */
 int printArticles(struct ncplane * plane, channelInfo * channel)
 {
   writelog_l(LOGLEVEL_TRACE, "printing %d articles to plane", channel->itemCount);
@@ -430,16 +453,16 @@ int printArticles(struct ncplane * plane, channelInfo * channel)
   char * buf;
 
   ncplane_dim_yx(plane, &rows, &cols);
-  buf = malloc(cols);
+  buf = malloc(cols+4);
 
   writelog_l(LOGLEVEL_TRACE, "writing items from channel %s", channel->title);
   int avail_rows = MIN(rows, channel->itemCount);
   for (int i = 0; i < avail_rows; ++i)
   {
-    if (strlen(channel->items[i]->title) > cols-3)
+    if (strlen(channel->items[i]->title) > cols-1)
     {
-      memcpy(buf, channel->items[i]->title, cols-6);
-      strcpy(&buf[cols-6], "...");
+      memcpy(buf, channel->items[i]->title, cols-4);
+      strcpy(&buf[cols-4], "\u2026");
     }
     else
     {
@@ -450,6 +473,11 @@ int printArticles(struct ncplane * plane, channelInfo * channel)
   free(buf);
 }
 
+/*
+ * Create a plane and list the items of the given channel.
+ * base: Parent plane upon which the new plane is drawn
+ * channel: source channel providing item information
+ */
 struct ncplane * createArticles(struct ncplane * base, channelInfo * channel)
 {
   writelog_l(LOGLEVEL_TRACE, "creating new article plane for %s", channel->title);
@@ -474,6 +502,10 @@ struct ncplane * createArticles(struct ncplane * base, channelInfo * channel)
   return ret;
 }
 
+/*
+ * Creates a header plane displaying titles of the various regions
+ * base: the parent panel upon which the header will be drawn
+ */
 struct ncplane * createHeader(struct ncplane * base)
 {
   unsigned rows, cols;
@@ -517,6 +549,12 @@ struct ncplane * createHeader(struct ncplane * base)
   return ret;
 }
 
+/*
+ * Create the "info" plane on the right region of the provided panel.
+ * Base: Parent panel on which info panel will be placed
+ * item: Source material to be placed in the panel
+ * nc_handle: if NULL, no attempt made to print image. if not NULL, we see buggy implementation of displaying image
+ */
 struct ncplane * createInfo(struct ncplane * base, itemInfo * item, struct notcurses * nc_handle)
 {
   writelog_l(LOGLEVEL_TRACE, "creating new item plane for %s", item->title);
