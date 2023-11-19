@@ -16,5 +16,8 @@
 #define ARROW_CHAR "\u21d2"
 #define SILENT_ARROW_CHAR "\u2192"
 
+#define __UC(_s) (unsigned char*)(_s)
+#define __CC(_s) (char*)(_s)
+
 #endif
 

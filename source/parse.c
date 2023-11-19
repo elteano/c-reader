@@ -9,10 +9,7 @@
 
 #include "parse.h"
 #include "logging.h"
-
-// Just solve our problems with casting
-#define __UC(_s) (unsigned char*)(_s)
-#define __CC(_s) (char*)(_s)
+#include "std.h"
 
 void enclosureFreeInfo(enclosureInfo * enc)
 {

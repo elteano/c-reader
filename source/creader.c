@@ -291,17 +291,20 @@ int printTitles(struct ncplane * plane, channelInfo ** channels, int numChannels
       for (int i = 0; i < numChannels; ++i)
       {
         writelog_l(LOGLEVEL_DEBUG, "printing channel title %s", channels[i]->title);
-        ncplane_putstr_yx(plane, i, 1, channels[i]->title);
+        ncplane_putstr_yx(plane, i, 1, __CC(channels[i]->title));
       }
+      return 0;
     }
     else
     {
       writelog_l(LOGLEVEL_WARN, "Tried printing, but plane was null.");
+      return 1;
     }
   }
   else
   {
     writelog_l(LOGLEVEL_WARN, "Tried printing, but channels was null.");
+    return 1;
   }
 }
 
@@ -327,18 +330,19 @@ int printArticles(struct ncplane * plane, channelInfo * channel)
   int avail_rows = MIN(rows, channel->itemCount);
   for (int i = 0; i < avail_rows; ++i)
   {
-    if (strlen(channel->items[i]->title) > cols-1)
+    if (strlen(__CC(channel->items[i]->title)) > cols-1)
     {
       memcpy(buf, channel->items[i]->title, cols-4);
       strcpy(&buf[cols-4], "\u2026");
     }
     else
     {
-      strcpy(buf, channel->items[i]->title);
+      strcpy(buf, __CC(channel->items[i]->title));
     }
     ncplane_putstr_yx(plane, i, 1, buf);
   }
   free(buf);
+  return 0;
 }
 
 /*
@@ -449,7 +453,7 @@ struct ncplane * createInfo(struct ncplane * base, itemInfo * item, struct notcu
     writelog_l(LOGLEVEL_TRACE, "getting info with image");
     // Download the file, have NotCurses read the file, calculate the location, and display
     FILE * tmpfile = fopen("/tmp/imgdata.tmp", "w+");
-    geturl(item->enclosure->link, tmpfile);
+    geturl(__CC(item->enclosure->link), tmpfile);
     fflush(tmpfile);
     fclose(tmpfile);
     tmpfile = NULL;
@@ -484,7 +488,7 @@ struct ncplane * createInfo(struct ncplane * base, itemInfo * item, struct notcu
     writelog_l(LOGLEVEL_TRACE, "blit called");
     if (item->description)
     {
-      ncplane_puttext(ret, 20, NCALIGN_LEFT, item->description, &bytes);
+      ncplane_puttext(ret, 20, NCALIGN_LEFT, __CC(item->description), &bytes);
       writelog_l(LOGLEVEL_TRACE, "puttext reports %u bytes", bytes);
     }
     else
@@ -500,7 +504,7 @@ struct ncplane * createInfo(struct ncplane * base, itemInfo * item, struct notcu
   {
     if (item->description)
     {
-      ncplane_puttext(ret, 0, NCALIGN_LEFT, item->description, &bytes);
+      ncplane_puttext(ret, 0, NCALIGN_LEFT, __CC(item->description), &bytes);
       writelog_l(LOGLEVEL_TRACE, "puttext reports %u bytes", bytes);
     }
     else
@@ -534,7 +538,7 @@ int main(int argc, char** argv)
     writelog("notcurses initialized");
     struct viewpane * viewpane;
     viewpane = calloc(1, sizeof(struct viewpane));
-    int height, width;
+    unsigned height, width;
 
     std_plane = notcurses_stddim_yx(nc_handle, &height, &width);
 
