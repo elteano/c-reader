@@ -17,8 +17,6 @@
 
 #include<notcurses/notcurses.h>
 
-#include<libxml/xmlreader.h>
-#include<libxml/tree.h>
 #include<libxml/xmlstring.h>
 
 #include<sys/mman.h>
@@ -321,22 +319,25 @@ int printArticles(struct ncplane * plane, channelInfo * channel)
   writelog_l(LOGLEVEL_TRACE, "printing %d articles to plane", channel->itemCount);
   unsigned rows;
   unsigned cols;
-  char * buf;
+  char * buf = malloc(BUFSIZ);
 
   ncplane_dim_yx(plane, &rows, &cols);
-  buf = malloc(cols+4);
 
   writelog_l(LOGLEVEL_TRACE, "writing items from channel %s", channel->title);
   int avail_rows = MIN(rows, channel->itemCount);
   for (int i = 0; i < avail_rows; ++i)
   {
-    if (strlen(__CC(channel->items[i]->title)) > cols-1)
+    if (xmlUTF8Strlen(channel->items[i]->title) > cols-1)
     {
-      memcpy(buf, channel->items[i]->title, cols-4);
-      strcpy(&buf[cols-4], "\u2026");
+      xmlChar * dat = xmlUTF8Strsub(channel->items[i]->title, 0, cols-4);
+      strcpy(buf, __CC(dat));
+      free(dat);
+      size_t writeloc = xmlUTF8Strsize(__UC(buf), cols-4);
+      strcpy(&buf[writeloc], "\u2026");
     }
     else
     {
+      buf = malloc(BUFSIZ);
       strcpy(buf, __CC(channel->items[i]->title));
     }
     ncplane_putstr_yx(plane, i, 1, buf);
@@ -399,7 +400,7 @@ struct ncplane * createHeader(struct ncplane * base)
   ncplane_cursor_move_yx(ret, 0, 0);
   for (int i = 0; i < cols; ++i)
   {
-    ncplane_putstr(ret, "\u259e");
+    ncplane_putstr(ret, TOP_BORDER_CHAR);
   }
   ncplane_cursor_move_yx(ret, TOP_PADDING-1, 0);
   for (int i = 0; i < cols; ++i)
@@ -411,6 +412,9 @@ struct ncplane * createHeader(struct ncplane * base)
     ncplane_putstr_yx(ret, r, SIDE_PADDING+space+INTER_PADDING/2, SIDE_BORDER_CHAR);
     ncplane_putstr_yx(ret, r, SIDE_PADDING+space*2+INTER_PADDING, SIDE_BORDER_CHAR);
   }
+  ncplane_putstr_yx(ret, 0, SIDE_PADDING+space+INTER_PADDING/2, TOP_SPLIT_CHAR);
+  ncplane_putstr_yx(ret, 0, SIDE_PADDING+space*2+INTER_PADDING, TOP_SPLIT_CHAR);
+
   ncplane_putstr_yx(ret, TOP_PADDING-1, SIDE_PADDING+space+INTER_PADDING/2, CT_CORNER_CHAR);
   ncplane_putstr_yx(ret, TOP_PADDING-1, SIDE_PADDING+space*2+INTER_PADDING, CT_CORNER_CHAR);
 
